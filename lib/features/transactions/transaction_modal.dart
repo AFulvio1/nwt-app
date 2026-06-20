@@ -13,56 +13,20 @@ class TransactionModal extends ConsumerStatefulWidget {
   ConsumerState<TransactionModal> createState() => _TransactionModalState();
 }
 
-class _EntryInputRow {
-  int? accountId;
-  String accountName = '';
-  String accountCurrency = 'EUR';
-  bool isDebit = true; // true = Debit (+), false = Credit (-)
-  double nativeAmount = 0.0;
-  double exchangeRate = 1.0;
-  double get baseAmount => nativeAmount * exchangeRate;
-}
-
 class _TransactionModalState extends ConsumerState<TransactionModal> {
   final _formKey = GlobalKey<FormState>();
   final _descriptionController = TextEditingController();
+  final _amountController = TextEditingController();
   DateTime _selectedDate = DateTime.now();
 
-  final List<_EntryInputRow> _entries = [
-    _EntryInputRow(),
-    _EntryInputRow(),
-  ];
+  int? _selectedReferenceAccountId;
+  int? _selectedCategoryAccountId;
 
   @override
   void dispose() {
     _descriptionController.dispose();
+    _amountController.dispose();
     super.dispose();
-  }
-
-  // Calculate base sum
-  double _calculateBalance() {
-    double sum = 0.0;
-    for (final entry in _entries) {
-      final sign = entry.isDebit ? 1.0 : -1.0;
-      sum += entry.baseAmount * sign;
-    }
-    return sum;
-  }
-
-  double _calculateTotalDebits() {
-    double sum = 0.0;
-    for (final entry in _entries) {
-      if (entry.isDebit) sum += entry.baseAmount;
-    }
-    return sum;
-  }
-
-  double _calculateTotalCredits() {
-    double sum = 0.0;
-    for (final entry in _entries) {
-      if (!entry.isDebit) sum += entry.baseAmount;
-    }
-    return sum;
   }
 
   Future<void> _selectDate(BuildContext context) async {
@@ -79,16 +43,24 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
     }
   }
 
-  Future<void> _submitTransaction(String baseCurrency) async {
+  Future<void> _submitTransaction(
+    String baseCurrency,
+    List<Account> accounts,
+    List<Category> categories,
+    List<MacroCategory> macros,
+  ) async {
     if (!_formKey.currentState!.validate()) return;
-
-    final double balance = _calculateBalance();
-    if (balance.abs() > 0.001) {
+    if (_selectedReferenceAccountId == null || _selectedCategoryAccountId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Transaction is unbalanced by ${balance.toStringAsFixed(2)} $baseCurrency'),
-          backgroundColor: Theme.of(context).colorScheme.error,
-        ),
+        const SnackBar(content: Text('Please select both an account and a category')),
+      );
+      return;
+    }
+
+    final double? amountDouble = double.tryParse(_amountController.text.trim());
+    if (amountDouble == null || amountDouble <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid amount greater than 0')),
       );
       return;
     }
@@ -96,19 +68,69 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
     try {
       final db = ref.read(databaseProvider);
 
-      // Create companion entries
-      final entriesComcompanions = _entries.map((entry) {
-        final double sign = entry.isDebit ? 1.0 : -1.0;
-        final int amountCents = (entry.nativeAmount * 100 * sign).round();
-        final int amountBaseCents = (entry.baseAmount * 100 * sign).round();
+      // Find selected category account to determine if it is Revenue (Income) or Expense (Outcome)
+      final categoryAccount = accounts.firstWhere((a) => a.id == _selectedCategoryAccountId);
+      final category = categories.firstWhere((c) => c.id == categoryAccount.categoryId);
+      final macro = macros.firstWhere((m) => m.id == category.macroCategoryId);
 
-        return EntriesCompanion(
-          accountId: drift.Value(entry.accountId!),
-          amount: drift.Value(amountCents),
-          amountInBase: drift.Value(amountBaseCents),
-          exchangeRate: drift.Value(entry.exchangeRate),
-        );
-      }).toList();
+      final bool isIncome = macro.type == 'Revenue';
+
+      // Validation: Prevent spending more than available balance on Asset accounts
+      if (!isIncome) {
+        final referenceAccount = accounts.firstWhere((a) => a.id == _selectedReferenceAccountId);
+        final refCategory = categories.firstWhere((c) => c.id == referenceAccount.categoryId);
+        final refMacro = macros.firstWhere((m) => m.id == refCategory.macroCategoryId);
+
+        if (refMacro.type == 'Asset') {
+          final dbEntries = await (db.select(db.entries)..where((e) => e.accountId.equals(_selectedReferenceAccountId!))).get();
+          int balanceCents = 0;
+          for (final entry in dbEntries) {
+            balanceCents += entry.amount;
+          }
+          final double currentBalance = balanceCents / 100.0;
+
+          if (currentBalance < amountDouble) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Insufficient funds in ${referenceAccount.name}. '
+                    'Available: ${currentBalance.toStringAsFixed(2)} $baseCurrency. '
+                    'Required: ${amountDouble.toStringAsFixed(2)} $baseCurrency.',
+                  ),
+                  backgroundColor: Theme.of(context).colorScheme.error,
+                ),
+              );
+            }
+            return;
+          }
+        }
+      }
+
+      // Debit = positive, Credit = negative
+      // If Income (Revenue):
+      // - Reference Account is DEBIT (+)
+      // - Category Account is CREDIT (-)
+      // If Expense (Outcome):
+      // - Reference Account is CREDIT (-)
+      // - Category Account is DEBIT (+)
+      final int refAmountCents = (amountDouble * 100 * (isIncome ? 1.0 : -1.0)).round();
+      final int catAmountCents = (amountDouble * 100 * (isIncome ? -1.0 : 1.0)).round();
+
+      final entriesComcompanions = [
+        EntriesCompanion(
+          accountId: drift.Value(_selectedReferenceAccountId!),
+          amount: drift.Value(refAmountCents),
+          amountInBase: drift.Value(refAmountCents), // Assuming 1.0 exchange rate
+          exchangeRate: const drift.Value(1.0),
+        ),
+        EntriesCompanion(
+          accountId: drift.Value(_selectedCategoryAccountId!),
+          amount: drift.Value(catAmountCents),
+          amountInBase: drift.Value(catAmountCents), // Assuming 1.0 exchange rate
+          exchangeRate: const drift.Value(1.0),
+        ),
+      ];
 
       final transactionCompanion = TransactionsCompanion(
         date: drift.Value(_selectedDate),
@@ -141,15 +163,46 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
   @override
   Widget build(BuildContext context) {
     final accountsAsync = ref.watch(accountsStreamProvider);
+    final categoriesAsync = ref.watch(categoriesStreamProvider);
+    final macrosAsync = ref.watch(macroCategoriesStreamProvider);
     final baseCurrencyAsync = ref.watch(baseCurrencyProvider);
+
+    if (accountsAsync.isLoading ||
+        categoriesAsync.isLoading ||
+        macrosAsync.isLoading ||
+        baseCurrencyAsync.isLoading) {
+      return Container(
+        height: 200,
+        alignment: Alignment.center,
+        child: const CircularProgressIndicator(),
+      );
+    }
 
     final baseCurrency = baseCurrencyAsync.value ?? 'EUR';
     final accounts = accountsAsync.value ?? [];
+    final categories = categoriesAsync.value ?? [];
+    final macros = macrosAsync.value ?? [];
 
-    final double balance = _calculateBalance();
-    final double debits = _calculateTotalDebits();
-    final double credits = _calculateTotalCredits();
-    final bool isBalanced = balance.abs() < 0.01;
+    final referenceAccounts = <Account>[];
+    final categoryAccounts = <Account>[];
+
+    for (final account in accounts) {
+      final category = categories.firstWhere((c) => c.id == account.categoryId, orElse: () => categories.first);
+      final macro = macros.firstWhere((m) => m.id == category.macroCategoryId, orElse: () => macros.first);
+
+      if (macro.type == 'Asset' || macro.type == 'Liability') {
+        referenceAccounts.add(account);
+      } else if (macro.type == 'Revenue' || macro.type == 'Expense') {
+        categoryAccounts.add(account);
+      }
+    }
+
+    if (_selectedReferenceAccountId == null && referenceAccounts.isNotEmpty) {
+      _selectedReferenceAccountId = referenceAccounts.first.id;
+    }
+    if (_selectedCategoryAccountId == null && categoryAccounts.isNotEmpty) {
+      _selectedCategoryAccountId = categoryAccounts.first.id;
+    }
 
     return Container(
       decoration: BoxDecoration(
@@ -174,7 +227,7 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'New Balanced Transaction',
+                    'New Transaction',
                     style: GoogleFonts.outfit(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -226,266 +279,79 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
 
-              // List of Entries
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Ledger Entries',
-                    style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                  TextButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _entries.add(_EntryInputRow());
-                      });
-                    },
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add Entry'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-
-              // Entry Rows Builder
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _entries.length,
-                itemBuilder: (context, index) {
-                  final entry = _entries[index];
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: BorderSide(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5)),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Entry #${index + 1}',
-                                style: GoogleFonts.outfit(fontWeight: FontWeight.bold),
-                              ),
-                              if (_entries.length > 2)
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                  onPressed: () {
-                                    setState(() {
-                                      _entries.removeAt(index);
-                                    });
-                                  },
-                                  constraints: const BoxConstraints(),
-                                  padding: EdgeInsets.zero,
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          // Row 1: Account Selection
-                          DropdownButtonFormField<int>(
-                            initialValue: entry.accountId,
-                            decoration: const InputDecoration(labelText: 'Account'),
-                            items: accounts.map((acc) {
-                              return DropdownMenuItem<int>(
-                                value: acc.id,
-                                child: Text('${acc.name} (${acc.currency})'),
-                              );
-                            }).toList(),
-                            onChanged: (value) {
-                              setState(() {
-                                entry.accountId = value;
-                                final acc = accounts.firstWhere((a) => a.id == value);
-                                entry.accountName = acc.name;
-                                entry.accountCurrency = acc.currency;
-                                entry.exchangeRate = acc.currency == baseCurrency ? 1.0 : 1.1; // Default stub conversion
-                              });
-                            },
-                            validator: (value) => value == null ? 'Select account' : null,
-                          ),
-                          const SizedBox(height: 8),
-                          // Row 2: Type (Debit/Credit), Amount, Exchange Rate
-                          Row(
-                            children: [
-                              // Debit/Credit Toggle
-                              Expanded(
-                                flex: 3,
-                                child: DropdownButtonFormField<bool>(
-                                  initialValue: entry.isDebit,
-                                  decoration: const InputDecoration(labelText: 'Type'),
-                                  items: const [
-                                    DropdownMenuItem(value: true, child: Text('Debit (+)')),
-                                    DropdownMenuItem(value: false, child: Text('Credit (-)')),
-                                  ],
-                                  onChanged: (val) {
-                                    if (val != null) {
-                                      setState(() {
-                                        entry.isDebit = val;
-                                      });
-                                    }
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              // Amount Input
-                              Expanded(
-                                flex: 4,
-                                child: TextFormField(
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                  decoration: InputDecoration(
-                                    labelText: 'Amount',
-                                    suffixText: entry.accountCurrency,
-                                  ),
-                                  onChanged: (val) {
-                                    setState(() {
-                                      entry.nativeAmount = double.tryParse(val) ?? 0.0;
-                                    });
-                                  },
-                                  validator: (value) {
-                                    final val = double.tryParse(value ?? '');
-                                    if (val == null || val <= 0) return 'Invalid';
-                                    return null;
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                          if (entry.accountCurrency != baseCurrency) ...[
-                            const SizedBox(height: 8),
-                            // Row 3: Exchange rate config (only if currency is different from base)
-                            Row(
-                              children: [
-                                Expanded(
-                                  flex: 1,
-                                  child: TextFormField(
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    initialValue: entry.exchangeRate.toString(),
-                                    decoration: InputDecoration(
-                                      labelText: 'Exchange Rate',
-                                      helperText: '1 ${entry.accountCurrency} = X $baseCurrency',
-                                    ),
-                                    onChanged: (val) {
-                                      setState(() {
-                                        entry.exchangeRate = double.tryParse(val) ?? 1.0;
-                                      });
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  flex: 1,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Text(
-                                      'Base: ${entry.baseAmount.toStringAsFixed(2)} $baseCurrency',
-                                      style: GoogleFonts.outfit(fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
+              // Reference Account Selection (Asset / Liability)
+              DropdownButtonFormField<int>(
+                initialValue: _selectedReferenceAccountId,
+                decoration: const InputDecoration(
+                  labelText: 'Reference Account',
+                  hintText: 'Select account (e.g. Bank Account)',
+                ),
+                items: referenceAccounts.map((acc) {
+                  return DropdownMenuItem<int>(
+                    value: acc.id,
+                    child: Text('${acc.name} (${acc.currency})'),
                   );
+                }).toList(),
+                onChanged: (value) {
+                  setState(() {
+                    _selectedReferenceAccountId = value;
+                  });
                 },
+                validator: (value) => value == null ? 'Select reference account' : null,
               ),
               const SizedBox(height: 16),
 
-              // Double-Entry Balance Bar
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: isBalanced
-                      ? Theme.of(context).colorScheme.secondary.withValues(alpha: 0.15)
-                      : Theme.of(context).colorScheme.error.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: isBalanced ? Theme.of(context).colorScheme.secondary : Theme.of(context).colorScheme.error,
-                    width: 1.5,
-                  ),
+              // Category Selection (Revenue / Expense)
+              DropdownButtonFormField<int>(
+                initialValue: _selectedCategoryAccountId,
+                decoration: const InputDecoration(
+                  labelText: 'Category / Type',
+                  hintText: 'Select category (e.g. Salary, Groceries)',
                 ),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Total Debits:',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        Text(
-                          '${debits.toStringAsFixed(2)} $baseCurrency',
-                          style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: Colors.green),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Total Credits:',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        Text(
-                          '${credits.toStringAsFixed(2)} $baseCurrency',
-                          style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: Colors.red),
-                        ),
-                      ],
-                    ),
-                    const Divider(),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Balance status:',
-                          style: GoogleFonts.outfit(fontWeight: FontWeight.bold),
-                        ),
-                        Row(
-                          children: [
-                            Icon(
-                              isBalanced ? Icons.check_circle_outline : Icons.warning_amber_rounded,
-                              color: isBalanced ? Colors.green : Colors.red,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              isBalanced
-                                  ? 'Balanced'
-                                  : 'Unbalanced by ${balance.toStringAsFixed(2)} $baseCurrency',
-                              style: GoogleFonts.outfit(
-                                fontWeight: FontWeight.bold,
-                                color: isBalanced ? Colors.green : Colors.red,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ],
+                items: categoryAccounts.map((acc) {
+                  return DropdownMenuItem<int>(
+                    value: acc.id,
+                    child: Text('${acc.name} (${acc.currency})'),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  setState(() {
+                    _selectedCategoryAccountId = value;
+                  });
+                },
+                validator: (value) => value == null ? 'Select category' : null,
+              ),
+              const SizedBox(height: 16),
+
+              // Amount Input Field
+              TextFormField(
+                controller: _amountController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  labelText: 'Amount',
+                  suffixText: baseCurrency,
                 ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Enter amount';
+                  }
+                  final double? amt = double.tryParse(value);
+                  if (amt == null || amt <= 0) {
+                    return 'Enter a valid amount';
+                  }
+                  return null;
+                },
               ),
               const SizedBox(height: 24),
 
               // Submit Button
               ElevatedButton(
-                onPressed: isBalanced ? () => _submitTransaction(baseCurrency) : null,
+                onPressed: () => _submitTransaction(baseCurrency, accounts, categories, macros),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Theme.of(context).colorScheme.primary,
                   foregroundColor: Colors.white,
-                  disabledBackgroundColor: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5),
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),

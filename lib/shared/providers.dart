@@ -161,3 +161,24 @@ final dashboardDataProvider = Provider<AsyncValue<DashboardData>>((ref) {
     baseCurrency: baseCurrency,
   ));
 });
+
+// Stream of all accounts including inactive ones
+final allAccountsStreamProvider = StreamProvider<List<Account>>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.select(db.accounts).watch();
+});
+
+// Stream of account balances (in native currency) calculated from ledger entries
+final accountBalancesProvider = StreamProvider<Map<int, double>>((ref) {
+  final db = ref.watch(databaseProvider);
+  final entriesStream = db.select(db.entries).watch();
+
+  return entriesStream.map((entries) {
+    final balances = <int, double>{};
+    for (final entry in entries) {
+      balances[entry.accountId] = (balances[entry.accountId] ?? 0.0) + (entry.amount / 100.0);
+    }
+    return balances;
+  });
+});
+

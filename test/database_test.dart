@@ -154,4 +154,125 @@ void main() {
       );
     });
   });
+
+  group('Accounts and Categories CRUD & Integrity Tests', () {
+    test('Category and Account CRUD operations', () async {
+      // 1. Seed Macro Category
+      final assetMacroId = await db.into(db.macroCategories).insert(
+            const MacroCategoriesCompanion(name: drift.Value('Assets'), type: drift.Value('Asset')),
+          );
+
+      // 2. Add Category
+      final catId = await db.addCategory(CategoriesCompanion(
+        macroCategoryId: drift.Value(assetMacroId),
+        name: const drift.Value('Test Bank Category'),
+      ));
+      expect(catId, greaterThan(0));
+
+      final categories = await db.select(db.categories).get();
+      expect(categories.any((c) => c.id == catId && c.name == 'Test Bank Category'), true);
+
+      // 3. Update Category
+      final category = categories.firstWhere((c) => c.id == catId);
+      final updatedCat = category.copyWith(name: 'Updated Category Name');
+      final updateSuccess = await db.updateCategory(updatedCat);
+      expect(updateSuccess, true);
+
+      final updatedCategories = await db.select(db.categories).get();
+      expect(updatedCategories.any((c) => c.id == catId && c.name == 'Updated Category Name'), true);
+
+      // 4. Add Account
+      final accId = await db.addAccount(AccountsCompanion(
+        categoryId: drift.Value(catId),
+        name: const drift.Value('Test Account'),
+        currency: const drift.Value('USD'),
+      ));
+      expect(accId, greaterThan(0));
+
+      final accounts = await db.select(db.accounts).get();
+      expect(accounts.any((a) => a.id == accId && a.name == 'Test Account'), true);
+
+      // 5. Update Account
+      final account = accounts.firstWhere((a) => a.id == accId);
+      final updatedAcc = account.copyWith(name: 'Updated Account Name');
+      final updateAccSuccess = await db.updateAccount(updatedAcc);
+      expect(updateAccSuccess, true);
+
+      final updatedAccounts = await db.select(db.accounts).get();
+      expect(updatedAccounts.any((a) => a.id == accId && a.name == 'Updated Account Name'), true);
+
+      // 6. Delete Account & Category
+      // Delete Account first
+      await db.deleteAccount(accId);
+      final postDeleteAccounts = await db.select(db.accounts).get();
+      expect(postDeleteAccounts.any((a) => a.id == accId), false);
+
+      // Delete Category
+      await db.deleteCategory(catId);
+      final postDeleteCategories = await db.select(db.categories).get();
+      expect(postDeleteCategories.any((c) => c.id == catId), false);
+    });
+
+    test('Integrity checks prevent deleting categories with accounts and accounts with entries', () async {
+      final assetMacroId = await db.into(db.macroCategories).insert(
+            const MacroCategoriesCompanion(name: drift.Value('Assets'), type: drift.Value('Asset')),
+          );
+
+      final catId = await db.addCategory(CategoriesCompanion(
+        macroCategoryId: drift.Value(assetMacroId),
+        name: const drift.Value('Investment Category'),
+      ));
+
+      final accId = await db.addAccount(AccountsCompanion(
+        categoryId: drift.Value(catId),
+        name: const drift.Value('Brokerage Account'),
+        currency: const drift.Value('EUR'),
+      ));
+
+      // Attempt to delete category when it has accounts - should be false
+      final canDeleteCatBefore = await db.canDeleteCategory(catId);
+      expect(canDeleteCatBefore, false);
+
+      // Attempt to delete account when it has no entries - should be true
+      final canDeleteAccBefore = await db.canDeleteAccount(accId);
+      expect(canDeleteAccBefore, true);
+
+      // Add a balanced transaction using this account
+      final expenseMacroId = await db.into(db.macroCategories).insert(
+            const MacroCategoriesCompanion(name: drift.Value('Expenses'), type: drift.Value('Expense')),
+          );
+      final expenseCatId = await db.addCategory(CategoriesCompanion(
+        macroCategoryId: drift.Value(expenseMacroId),
+        name: const drift.Value('Fees'),
+      ));
+      final expenseAccId = await db.addAccount(AccountsCompanion(
+        categoryId: drift.Value(expenseCatId),
+        name: const drift.Value('Broker Fees'),
+        currency: const drift.Value('EUR'),
+      ));
+
+      await db.createBalancedTransaction(
+        transaction: TransactionsCompanion(
+          date: drift.Value(DateTime.now()),
+          description: const drift.Value('Broker Fee Payment'),
+        ),
+        entries: [
+          EntriesCompanion(
+            accountId: drift.Value(accId),
+            amount: const drift.Value(-1000), // Credit Brokerage (-10 EUR)
+            amountInBase: const drift.Value(-1000),
+          ),
+          EntriesCompanion(
+            accountId: drift.Value(expenseAccId),
+            amount: const drift.Value(1000), // Debit Fees (+10 EUR)
+            amountInBase: const drift.Value(1000),
+          ),
+        ],
+      );
+
+      // Now attempt to delete account when it has entries - should be false
+      final canDeleteAccAfter = await db.canDeleteAccount(accId);
+      expect(canDeleteAccAfter, false);
+    });
+  });
 }

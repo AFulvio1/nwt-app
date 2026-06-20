@@ -25,3 +25,6 @@ These instructions help Antigravity interact with and maintain the `nwt-app` wor
   * Avoid deprecated `withOpacity()` in colors. Use `.withValues(alpha: ...)` instead.
   * Avoid deprecated `background` and `onBackground` color parameters in `ColorScheme`. Use `surface` and `onSurface` instead.
   * Avoid deprecated `value` property in `DropdownButtonFormField`. Use `initialValue` instead.
+  * **Localization Rule**:
+    * The application UI, user-facing copy, code comments, and database schema documentation must always be written in English. Avoid any Italian labels or phrases in the user interface.
+

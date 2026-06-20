@@ -146,6 +146,32 @@ class AppDatabase extends _$AppDatabase {
   }
 
   // ---------------------------------------------------------
+  // ACCOUNTS CRUD
+  // ---------------------------------------------------------
+
+  Future<int> addAccount(AccountsCompanion account) => into(accounts).insert(account);
+  Future<bool> updateAccount(Account account) => update(accounts).replace(account);
+  Future<int> deleteAccount(int id) => (delete(accounts)..where((a) => a.id.equals(id))).go();
+
+  Future<bool> canDeleteAccount(int accountId) async {
+    final entry = await (select(entries)..where((e) => e.accountId.equals(accountId))..limit(1)).getSingleOrNull();
+    return entry == null;
+  }
+
+  // ---------------------------------------------------------
+  // CATEGORIES CRUD
+  // ---------------------------------------------------------
+
+  Future<int> addCategory(CategoriesCompanion category) => into(categories).insert(category);
+  Future<bool> updateCategory(Category category) => update(categories).replace(category);
+  Future<int> deleteCategory(int id) => (delete(categories)..where((c) => c.id.equals(id))).go();
+
+  Future<bool> canDeleteCategory(int categoryId) async {
+    final account = await (select(accounts)..where((a) => a.categoryId.equals(categoryId))..limit(1)).getSingleOrNull();
+    return account == null;
+  }
+
+  // ---------------------------------------------------------
   // SEEDING UTILITY
   // ---------------------------------------------------------
 
@@ -162,16 +188,15 @@ class AppDatabase extends _$AppDatabase {
 
       // Seed macro categories
       final assetId = await into(macroCategories).insert(const MacroCategoriesCompanion(name: Value('Assets'), type: Value('Asset')));
-      final liabilityId = await into(macroCategories).insert(const MacroCategoriesCompanion(name: Value('Liabilities'), type: Value('Liability')));
+      await into(macroCategories).insert(const MacroCategoriesCompanion(name: Value('Liabilities'), type: Value('Liability')));
       final revenueId = await into(macroCategories).insert(const MacroCategoriesCompanion(name: Value('Revenues'), type: Value('Revenue')));
       final expenseId = await into(macroCategories).insert(const MacroCategoriesCompanion(name: Value('Expenses'), type: Value('Expense')));
 
       // Seed default categories
       final bankCatId = await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(assetId), name: const Value('Cash & Bank'), isDefault: const Value(true)));
-      final cardCatId = await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(liabilityId), name: const Value('Credit Cards'), isDefault: const Value(true)));
-      await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(revenueId), name: const Value('Salary & Income'), isDefault: const Value(true)));
-      await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Groceries'), isDefault: const Value(true)));
-      await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Housing & Rent'), isDefault: const Value(true)));
+      final salaryCatId = await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(revenueId), name: const Value('Salary & Income'), isDefault: const Value(true)));
+      final groceriesCatId = await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Groceries'), isDefault: const Value(true)));
+      final rentCatId = await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Housing & Rent'), isDefault: const Value(true)));
 
       // Seed default accounts
       await into(accounts).insert(AccountsCompanion(
@@ -185,8 +210,18 @@ class AppDatabase extends _$AppDatabase {
         currency: Value(baseCurrency),
       ));
       await into(accounts).insert(AccountsCompanion(
-        categoryId: Value(cardCatId),
-        name: const Value('Primary Credit Card'),
+        categoryId: Value(salaryCatId),
+        name: const Value('Salary (Income)'),
+        currency: Value(baseCurrency),
+      ));
+      await into(accounts).insert(AccountsCompanion(
+        categoryId: Value(groceriesCatId),
+        name: const Value('Groceries Expense'),
+        currency: Value(baseCurrency),
+      ));
+      await into(accounts).insert(AccountsCompanion(
+        categoryId: Value(rentCatId),
+        name: const Value('Rent Expense'),
         currency: Value(baseCurrency),
       ));
     });
@@ -195,7 +230,16 @@ class AppDatabase extends _$AppDatabase {
 
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
-    final dbFolder = await getApplicationDocumentsDirectory();
+    // If the local workspace directory exists (development machine),
+    // save the database directly in the project folder to make it easily
+    // accessible to VS Code and SQLite Viewer without symlink/permission issues.
+    final devDir = Directory('/Users/antoniofulvio/Projects/nwt-app');
+    if (await devDir.exists()) {
+      final file = File(p.join(devDir.path, 'nwt_database.sqlite'));
+      return NativeDatabase.createInBackground(file);
+    }
+
+    final dbFolder = await getApplicationSupportDirectory();
     final file = File(p.join(dbFolder.path, 'nwt_database.sqlite'));
     return NativeDatabase.createInBackground(file);
   });

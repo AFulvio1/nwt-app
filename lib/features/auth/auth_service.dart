@@ -40,7 +40,9 @@ class AuthState {
 }
 
 class AuthService extends Notifier<AuthState> {
-  final _storage = const FlutterSecureStorage();
+  final _storage = const FlutterSecureStorage(
+    mOptions: MacOsOptions(usesDataProtectionKeychain: false),
+  );
   final _localAuth = LocalAuthentication();
 
   static const _pinHashKey = 'nwt_pin_hash';

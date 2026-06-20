@@ -7,9 +7,20 @@ import '../../core/database/database.dart';
 import '../../shared/providers.dart';
 import '../transactions/transaction_modal.dart';
 import '../auth/auth_service.dart';
+import '../accounts/accounts_view.dart';
+import '../accounts/account_form_modal.dart';
+import '../categories/categories_view.dart';
+import '../categories/category_form_modal.dart';
 
-class DashboardView extends ConsumerWidget {
+class DashboardView extends ConsumerStatefulWidget {
   const DashboardView({super.key});
+
+  @override
+  ConsumerState<DashboardView> createState() => _DashboardViewState();
+}
+
+class _DashboardViewState extends ConsumerState<DashboardView> {
+  int _selectedIndex = 0;
 
   void _showTransactionModal(BuildContext context) {
     showModalBottomSheet(
@@ -20,15 +31,46 @@ class DashboardView extends ConsumerWidget {
     );
   }
 
+  void _showAccountForm(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const AccountFormModal(),
+    );
+  }
+
+  void _showCategoryForm(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const CategoryFormModal(),
+    );
+  }
+
+  String _getTitle() {
+    switch (_selectedIndex) {
+      case 0:
+        return 'Net Worth Tracker';
+      case 1:
+        return 'Manage Accounts';
+      case 2:
+        return 'Manage Categories';
+      default:
+        return 'Net Worth Tracker';
+    }
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final dashboardDataAsync = ref.watch(dashboardDataProvider);
     final recentTxsAsync = ref.watch(transactionsStreamProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Net Worth Tracker',
+          _getTitle(),
           style: GoogleFonts.outfit(fontWeight: FontWeight.bold),
         ),
         actions: [
@@ -38,49 +80,99 @@ class DashboardView extends ConsumerWidget {
               ref.read(authServiceProvider.notifier).lock();
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text('Reset Ledger'),
-                  content: const Text('Are you sure you want to delete all settings, accounts, and transactions?'),
-                  actions: [
-                    TextButton(
-                      child: const Text('Cancel'),
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                    TextButton(
-                      style: TextButton.styleFrom(foregroundColor: Colors.red),
-                      child: const Text('Reset'),
-                      onPressed: () async {
-                        Navigator.of(context).pop();
-                        await ref.read(authServiceProvider.notifier).resetCredentials();
-                      },
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
+          if (_selectedIndex == 0)
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('Reset Ledger'),
+                    content: const Text('Are you sure you want to delete all settings, accounts, and transactions?'),
+                    actions: [
+                      TextButton(
+                        child: const Text('Cancel'),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                      TextButton(
+                        style: TextButton.styleFrom(foregroundColor: Colors.red),
+                        child: const Text('Reset'),
+                        onPressed: () async {
+                          Navigator.of(context).pop();
+                          await ref.read(authServiceProvider.notifier).resetCredentials();
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => _showTransactionModal(context),
+        onPressed: () {
+          if (_selectedIndex == 0) {
+            _showTransactionModal(context);
+          } else if (_selectedIndex == 1) {
+            _showAccountForm(context);
+          } else if (_selectedIndex == 2) {
+            _showCategoryForm(context);
+          }
+        },
         backgroundColor: Theme.of(context).colorScheme.primary,
         foregroundColor: Colors.white,
         child: const Icon(Icons.add),
       ),
-      body: dashboardDataAsync.when(
-        data: (data) => _buildContent(context, ref, data, recentTxsAsync.value ?? []),
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, stack) => Center(child: Text('Error: $err')),
+      body: _buildBody(dashboardDataAsync, recentTxsAsync),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.dashboard_outlined),
+            selectedIcon: Icon(Icons.dashboard),
+            label: 'Dashboard',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.account_balance_outlined),
+            selectedIcon: Icon(Icons.account_balance),
+            label: 'Accounts',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.category_outlined),
+            selectedIcon: Icon(Icons.category),
+            label: 'Categories',
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildContent(BuildContext context, WidgetRef ref, DashboardData data, List<TransactionWithEntries> txs) {
+  Widget _buildBody(
+    AsyncValue<DashboardData> dashboardDataAsync,
+    AsyncValue<List<TransactionWithEntries>> recentTxsAsync,
+  ) {
+    switch (_selectedIndex) {
+      case 0:
+        return dashboardDataAsync.when(
+          data: (data) => _buildContent(context, data, recentTxsAsync.value ?? []),
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (err, stack) => Center(child: Text('Error: $err')),
+        );
+      case 1:
+        return const AccountsView();
+      case 2:
+        return const CategoriesView();
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  Widget _buildContent(BuildContext context, DashboardData data, List<TransactionWithEntries> txs) {
     final formatter = NumberFormat.simpleCurrency(name: data.baseCurrency, decimalDigits: 2);
 
     return SingleChildScrollView(
@@ -155,7 +247,7 @@ class DashboardView extends ConsumerWidget {
           if (txs.isEmpty)
             _buildEmptyTransactionsCard(context)
           else
-            _buildTransactionsList(context, ref, txs, formatter),
+            _buildTransactionsList(context, txs, formatter),
         ],
       ),
     );
@@ -396,7 +488,7 @@ class DashboardView extends ConsumerWidget {
     );
   }
 
-  Widget _buildTransactionsList(BuildContext context, WidgetRef ref, List<TransactionWithEntries> txs, NumberFormat formatter) {
+  Widget _buildTransactionsList(BuildContext context, List<TransactionWithEntries> txs, NumberFormat formatter) {
     // Show top 5 recent transactions
     final itemsToShow = txs.take(5).toList();
 

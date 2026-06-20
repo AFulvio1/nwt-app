@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:drift/drift.dart';
-import 'package:drift/drift.dart' as drift;
 import '../core/database/database.dart';
 
 // Stream of all active accounts
@@ -37,7 +36,7 @@ final transactionsStreamProvider = StreamProvider<List<TransactionWithEntries>>(
   final txsStream = (db.select(db.transactions)
         ..orderBy([(t) => OrderingTerm(expression: t.date, mode: OrderingMode.desc)]))
       .watch();
-  final entriesStream = db.select(db.entries).watch();
+  db.select(db.entries).watch();
 
   return txsStream.asyncMap((txs) async {
     final entries = await db.select(db.entries).get();

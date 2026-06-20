@@ -153,7 +153,7 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
 
     return Container(
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.background,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       padding: EdgeInsets.only(
@@ -260,7 +260,7 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
                     margin: const EdgeInsets.only(bottom: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
-                      side: BorderSide(color: Theme.of(context).colorScheme.outline.withOpacity(0.5)),
+                      side: BorderSide(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5)),
                     ),
                     child: Padding(
                       padding: const EdgeInsets.all(12.0),
@@ -290,7 +290,7 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
                           const SizedBox(height: 8),
                           // Row 1: Account Selection
                           DropdownButtonFormField<int>(
-                            value: entry.accountId,
+                            initialValue: entry.accountId,
                             decoration: const InputDecoration(labelText: 'Account'),
                             items: accounts.map((acc) {
                               return DropdownMenuItem<int>(
@@ -317,7 +317,7 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
                               Expanded(
                                 flex: 3,
                                 child: DropdownButtonFormField<bool>(
-                                  value: entry.isDebit,
+                                  initialValue: entry.isDebit,
                                   decoration: const InputDecoration(labelText: 'Type'),
                                   items: const [
                                     DropdownMenuItem(value: true, child: Text('Debit (+)')),
@@ -383,7 +383,7 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
                                     decoration: BoxDecoration(
-                                      color: Theme.of(context).colorScheme.outline.withOpacity(0.1),
+                                      color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1),
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: Text(
@@ -408,8 +408,8 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: isBalanced
-                      ? Theme.of(context).colorScheme.secondary.withOpacity(0.15)
-                      : Theme.of(context).colorScheme.error.withOpacity(0.15),
+                      ? Theme.of(context).colorScheme.secondary.withValues(alpha: 0.15)
+                      : Theme.of(context).colorScheme.error.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
                     color: isBalanced ? Theme.of(context).colorScheme.secondary : Theme.of(context).colorScheme.error,
@@ -485,7 +485,7 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Theme.of(context).colorScheme.primary,
                   foregroundColor: Colors.white,
-                  disabledBackgroundColor: Theme.of(context).colorScheme.outline.withOpacity(0.5),
+                  disabledBackgroundColor: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5),
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),

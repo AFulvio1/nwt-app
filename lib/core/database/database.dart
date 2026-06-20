@@ -92,7 +92,7 @@ class AppSettings extends Table {
 ])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
-  AppDatabase.executor(QueryExecutor e) : super(e);
+  AppDatabase.executor(super.e);
 
   @override
   int get schemaVersion => 1;
@@ -163,16 +163,15 @@ class AppDatabase extends _$AppDatabase {
       // Seed macro categories
       final assetId = await into(macroCategories).insert(const MacroCategoriesCompanion(name: Value('Assets'), type: Value('Asset')));
       final liabilityId = await into(macroCategories).insert(const MacroCategoriesCompanion(name: Value('Liabilities'), type: Value('Liability')));
-      final equityId = await into(macroCategories).insert(const MacroCategoriesCompanion(name: Value('Equity'), type: Value('Equity')));
       final revenueId = await into(macroCategories).insert(const MacroCategoriesCompanion(name: Value('Revenues'), type: Value('Revenue')));
       final expenseId = await into(macroCategories).insert(const MacroCategoriesCompanion(name: Value('Expenses'), type: Value('Expense')));
 
       // Seed default categories
       final bankCatId = await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(assetId), name: const Value('Cash & Bank'), isDefault: const Value(true)));
       final cardCatId = await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(liabilityId), name: const Value('Credit Cards'), isDefault: const Value(true)));
-      final salaryCatId = await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(revenueId), name: const Value('Salary & Income'), isDefault: const Value(true)));
-      final groceryCatId = await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Groceries'), isDefault: const Value(true)));
-      final rentCatId = await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Housing & Rent'), isDefault: const Value(true)));
+      await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(revenueId), name: const Value('Salary & Income'), isDefault: const Value(true)));
+      await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Groceries'), isDefault: const Value(true)));
+      await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Housing & Rent'), isDefault: const Value(true)));
 
       // Seed default accounts
       await into(accounts).insert(AccountsCompanion(

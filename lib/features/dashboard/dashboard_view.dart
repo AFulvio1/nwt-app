@@ -176,7 +176,7 @@ class DashboardView extends ConsumerWidget {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
             blurRadius: 16,
             offset: const Offset(0, 8),
           ),
@@ -254,7 +254,7 @@ class DashboardView extends ConsumerWidget {
                   style: GoogleFonts.outfit(
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
-                    color: Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.6),
+                    color: Theme.of(context).textTheme.bodyMedium?.color?.withValues(alpha: 0.6),
                   ),
                 ),
                 Icon(icon, size: 16, color: color),
@@ -310,7 +310,7 @@ class DashboardView extends ConsumerWidget {
                 show: true,
                 drawVerticalLine: false,
                 getDrawingHorizontalLine: (value) => FlLine(
-                  color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                  color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
                   strokeWidth: 1,
                 ),
               ),
@@ -356,8 +356,8 @@ class DashboardView extends ConsumerWidget {
                     show: true,
                     gradient: LinearGradient(
                       colors: [
-                        Theme.of(context).colorScheme.primary.withOpacity(0.2),
-                        Theme.of(context).colorScheme.secondary.withOpacity(0.02),
+                        Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
+                        Theme.of(context).colorScheme.secondary.withValues(alpha: 0.02),
                       ],
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
@@ -416,7 +416,7 @@ class DashboardView extends ConsumerWidget {
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
             leading: CircleAvatar(
-              backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+              backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
               foregroundColor: Theme.of(context).colorScheme.primary,
               child: const Icon(Icons.swap_horiz),
             ),
@@ -435,7 +435,7 @@ class DashboardView extends ConsumerWidget {
                   formatter.format(txSum),
                   style: GoogleFonts.outfit(
                     fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.onBackground,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
                 IconButton(

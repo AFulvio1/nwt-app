@@ -80,7 +80,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 2.0,
-                      color: Theme.of(context).colorScheme.onBackground,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -194,14 +194,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         style: OutlinedButton.styleFrom(
           shape: const CircleBorder(),
           side: BorderSide(color: Theme.of(context).colorScheme.outline, width: 1.5),
-          backgroundColor: Theme.of(context).colorScheme.surface.withOpacity(0.4),
+          backgroundColor: Theme.of(context).colorScheme.surface.withValues(alpha: 0.4),
         ),
         child: Text(
           '$digit',
           style: GoogleFonts.outfit(
             fontSize: 24,
             fontWeight: FontWeight.w600,
-            color: Theme.of(context).colorScheme.onBackground,
+            color: Theme.of(context).colorScheme.onSurface,
           ),
         ),
       ),
@@ -234,7 +234,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         icon: Icon(
           Icons.backspace_outlined,
           size: 24,
-          color: Theme.of(context).colorScheme.onBackground,
+          color: Theme.of(context).colorScheme.onSurface,
         ),
       ),
     );

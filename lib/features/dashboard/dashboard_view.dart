@@ -11,6 +11,7 @@ import '../accounts/accounts_view.dart';
 import '../accounts/account_form_modal.dart';
 import '../categories/categories_view.dart';
 import '../categories/category_form_modal.dart';
+import '../transactions/transactions_view.dart';
 
 class DashboardView extends ConsumerStatefulWidget {
   const DashboardView({super.key});
@@ -54,8 +55,10 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
       case 0:
         return 'Net Worth Tracker';
       case 1:
-        return 'Manage Accounts';
+        return 'Transactions';
       case 2:
+        return 'Manage Accounts';
+      case 3:
         return 'Manage Categories';
       default:
         return 'Net Worth Tracker';
@@ -111,11 +114,11 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          if (_selectedIndex == 0) {
+          if (_selectedIndex == 0 || _selectedIndex == 1) {
             _showTransactionModal(context);
-          } else if (_selectedIndex == 1) {
-            _showAccountForm(context);
           } else if (_selectedIndex == 2) {
+            _showAccountForm(context);
+          } else if (_selectedIndex == 3) {
             _showCategoryForm(context);
           }
         },
@@ -136,6 +139,11 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
             icon: Icon(Icons.dashboard_outlined),
             selectedIcon: Icon(Icons.dashboard),
             label: 'Dashboard',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.swap_horiz_outlined),
+            selectedIcon: Icon(Icons.swap_horiz),
+            label: 'Transactions',
           ),
           NavigationDestination(
             icon: Icon(Icons.account_balance_outlined),
@@ -164,8 +172,10 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
           error: (err, stack) => Center(child: Text('Error: $err')),
         );
       case 1:
-        return const AccountsView();
+        return const TransactionsView();
       case 2:
+        return const AccountsView();
+      case 3:
         return const CategoriesView();
       default:
         return const SizedBox.shrink();

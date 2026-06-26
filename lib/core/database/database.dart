@@ -27,9 +27,9 @@ class Categories extends Table {
 
 class Accounts extends Table {
   IntColumn get id => integer().autoIncrement()();
-  IntColumn get categoryId => integer().references(Categories, #id)();
   TextColumn get name => text()();
   TextColumn get currency => text()(); // e.g. EUR, USD, GBP
+  TextColumn get type => text().withDefault(const Constant('bank'))(); // e.g. bank, cash
   TextColumn get description => text().nullable()();
   BoolColumn get isActive => boolean().withDefault(const Constant(true))();
 }
@@ -43,8 +43,9 @@ class Transactions extends Table {
 class Entries extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get transactionId => integer().references(Transactions, #id, onDelete: KeyAction.cascade)();
-  IntColumn get accountId => integer().references(Accounts, #id)();
-  IntColumn get amount => integer()(); // Cents in native account currency. Debit (+), Credit (-)
+  IntColumn get accountId => integer().nullable().references(Accounts, #id)();
+  IntColumn get categoryId => integer().nullable().references(Categories, #id)();
+  IntColumn get amount => integer()(); // Cents. Debit (+), Credit (-)
   IntColumn get amountInBase => integer()(); // Cents converted to base currency. Debit (+), Credit (-)
   RealColumn get exchangeRate => real().withDefault(const Constant(1.0))();
 }
@@ -95,7 +96,18 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.executor(super.e);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onUpgrade: (m, from, to) async {
+          // Destructive migration for development simplicity
+          for (final table in allTables) {
+            await m.drop(table);
+          }
+          await m.createAll();
+        },
+      );
 
   // Custom exception for unbalanced transactions
   static const String unbalancedErrorMessage = 'Double-entry transaction is not balanced in base currency. The sum of all base entries must equal exactly 0.';
@@ -167,15 +179,15 @@ class AppDatabase extends _$AppDatabase {
   Future<int> deleteCategory(int id) => (delete(categories)..where((c) => c.id.equals(id))).go();
 
   Future<bool> canDeleteCategory(int categoryId) async {
-    final account = await (select(accounts)..where((a) => a.categoryId.equals(categoryId))..limit(1)).getSingleOrNull();
-    return account == null;
+    final entry = await (select(entries)..where((e) => e.categoryId.equals(categoryId))..limit(1)).getSingleOrNull();
+    return entry == null;
   }
 
   // ---------------------------------------------------------
   // SEEDING UTILITY
   // ---------------------------------------------------------
 
-  Future<void> seedInitialData(String baseCurrency) async {
+  Future<void> seedInitialData(String baseCurrency, {String template = 'personal'}) async {
     await transaction(() async {
       // 1. Insert settings
       await into(appSettings).insertOnConflictUpdate(
@@ -187,43 +199,53 @@ class AppDatabase extends _$AppDatabase {
       if (existingMacros.isNotEmpty) return;
 
       // Seed macro categories
-      final assetId = await into(macroCategories).insert(const MacroCategoriesCompanion(name: Value('Assets'), type: Value('Asset')));
-      await into(macroCategories).insert(const MacroCategoriesCompanion(name: Value('Liabilities'), type: Value('Liability')));
       final revenueId = await into(macroCategories).insert(const MacroCategoriesCompanion(name: Value('Revenues'), type: Value('Revenue')));
       final expenseId = await into(macroCategories).insert(const MacroCategoriesCompanion(name: Value('Expenses'), type: Value('Expense')));
 
-      // Seed default categories
-      final bankCatId = await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(assetId), name: const Value('Cash & Bank'), isDefault: const Value(true)));
-      final salaryCatId = await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(revenueId), name: const Value('Salary & Income'), isDefault: const Value(true)));
-      final groceriesCatId = await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Groceries'), isDefault: const Value(true)));
-      final rentCatId = await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Housing & Rent'), isDefault: const Value(true)));
+      if (template == 'personal') {
+        // Seed default categories
+        await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(revenueId), name: const Value('Income'), isDefault: const Value(true)));
+        await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(revenueId), name: const Value('Extra Income'), isDefault: const Value(true)));
+        await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Groceries'), isDefault: const Value(true)));
+        await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Rent'), isDefault: const Value(true)));
+        await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Utilities'), isDefault: const Value(true)));
+        await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Leisure'), isDefault: const Value(true)));
+        await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Travel'), isDefault: const Value(true)));
+        await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Other'), isDefault: const Value(true)));
 
-      // Seed default accounts
-      await into(accounts).insert(AccountsCompanion(
-        categoryId: Value(bankCatId),
-        name: const Value('Primary Bank Account'),
-        currency: Value(baseCurrency),
-      ));
-      await into(accounts).insert(AccountsCompanion(
-        categoryId: Value(bankCatId),
-        name: const Value('Cash Wallet'),
-        currency: Value(baseCurrency),
-      ));
-      await into(accounts).insert(AccountsCompanion(
-        categoryId: Value(salaryCatId),
-        name: const Value('Salary (Income)'),
-        currency: Value(baseCurrency),
-      ));
-      await into(accounts).insert(AccountsCompanion(
-        categoryId: Value(groceriesCatId),
-        name: const Value('Groceries Expense'),
-        currency: Value(baseCurrency),
-      ));
-      await into(accounts).insert(AccountsCompanion(
-        categoryId: Value(rentCatId),
-        name: const Value('Rent Expense'),
-        currency: Value(baseCurrency),
-      ));
+        // Seed default accounts
+        await into(accounts).insert(AccountsCompanion(
+          name: const Value('Primary Bank Account'),
+          currency: Value(baseCurrency),
+          type: const Value('bank'),
+        ));
+        await into(accounts).insert(AccountsCompanion(
+          name: const Value('Cash Wallet'),
+          currency: Value(baseCurrency),
+          type: const Value('cash'),
+        ));
+      } else if (template == 'business') {
+        // Seed default categories
+        await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(revenueId), name: const Value('Sales Revenue'), isDefault: const Value(true)));
+        await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(revenueId), name: const Value('Other Revenue'), isDefault: const Value(true)));
+        await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Operating Expenses'), isDefault: const Value(true)));
+        await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Taxes'), isDefault: const Value(true)));
+        await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Software & Tools'), isDefault: const Value(true)));
+        await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Office & Rent'), isDefault: const Value(true)));
+        await into(categories).insert(CategoriesCompanion(macroCategoryId: Value(expenseId), name: const Value('Other Expenses'), isDefault: const Value(true)));
+
+        // Seed default accounts
+        await into(accounts).insert(AccountsCompanion(
+          name: const Value('Business Bank Account'),
+          currency: Value(baseCurrency),
+          type: const Value('bank'),
+        ));
+        await into(accounts).insert(AccountsCompanion(
+          name: const Value('Cash Wallet'),
+          currency: Value(baseCurrency),
+          type: const Value('cash'),
+        ));
+      }
     });
   }
 }

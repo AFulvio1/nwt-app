@@ -17,39 +17,26 @@ void main() {
 
   group('Double-Entry Ledger Validation Tests', () {
     late int bankAccountId;
-    late int creditCardAccountId;
+    late int incomeCategoryId;
 
     setUp(() async {
       // Seed initial mock schema dependencies
       // 1. Macro categories
-      final assetMacroId = await db.into(db.macroCategories).insert(
-            const MacroCategoriesCompanion(name: drift.Value('Assets'), type: drift.Value('Asset')),
-          );
-      final liabilityMacroId = await db.into(db.macroCategories).insert(
-            const MacroCategoriesCompanion(name: drift.Value('Liabilities'), type: drift.Value('Liability')),
+      final revenueMacroId = await db.into(db.macroCategories).insert(
+            const MacroCategoriesCompanion(name: drift.Value('Revenues'), type: drift.Value('Revenue')),
           );
 
       // 2. Categories
-      final bankCatId = await db.into(db.categories).insert(
-            CategoriesCompanion(macroCategoryId: drift.Value(assetMacroId), name: const drift.Value('Bank')),
-          );
-      final cardCatId = await db.into(db.categories).insert(
-            CategoriesCompanion(macroCategoryId: drift.Value(liabilityMacroId), name: const drift.Value('Credit Card')),
+      incomeCategoryId = await db.into(db.categories).insert(
+            CategoriesCompanion(macroCategoryId: drift.Value(revenueMacroId), name: const drift.Value('Income')),
           );
 
-      // 3. Accounts
+      // 3. Accounts (No categoryId needed in new schema)
       bankAccountId = await db.into(db.accounts).insert(
-            AccountsCompanion(
-              categoryId: drift.Value(bankCatId),
-              name: const drift.Value('Bank Account'),
-              currency: const drift.Value('EUR'),
-            ),
-          );
-      creditCardAccountId = await db.into(db.accounts).insert(
-            AccountsCompanion(
-              categoryId: drift.Value(cardCatId),
-              name: const drift.Value('Visa Card'),
-              currency: const drift.Value('EUR'),
+            const AccountsCompanion(
+              name: drift.Value('Bank Account'),
+              currency: drift.Value('EUR'),
+              type: drift.Value('bank'),
             ),
           );
     });
@@ -64,13 +51,15 @@ void main() {
         // Debit Bank Account (+100 EUR)
         EntriesCompanion(
           accountId: drift.Value(bankAccountId),
+          categoryId: const drift.Value(null),
           amount: const drift.Value(10000),
           amountInBase: const drift.Value(10000),
           exchangeRate: const drift.Value(1.0),
         ),
-        // Credit Credit Card Account (-100 EUR)
+        // Credit Income Category (-100 EUR)
         EntriesCompanion(
-          accountId: drift.Value(creditCardAccountId),
+          accountId: const drift.Value(null),
+          categoryId: drift.Value(incomeCategoryId),
           amount: const drift.Value(-10000),
           amountInBase: const drift.Value(-10000),
           exchangeRate: const drift.Value(1.0),
@@ -101,13 +90,15 @@ void main() {
         // Debit Bank (+100 EUR)
         EntriesCompanion(
           accountId: drift.Value(bankAccountId),
+          categoryId: const drift.Value(null),
           amount: const drift.Value(10000),
           amountInBase: const drift.Value(10000),
           exchangeRate: const drift.Value(1.0),
         ),
-        // Credit Credit Card (-80 EUR) - Unbalanced by 20 EUR!
+        // Credit Income Category (-80 EUR) - Unbalanced by 20 EUR!
         EntriesCompanion(
-          accountId: drift.Value(creditCardAccountId),
+          accountId: const drift.Value(null),
+          categoryId: drift.Value(incomeCategoryId),
           amount: const drift.Value(-8000),
           amountInBase: const drift.Value(-8000),
           exchangeRate: const drift.Value(1.0),
@@ -139,6 +130,7 @@ void main() {
       final entriesComcompanions = [
         EntriesCompanion(
           accountId: drift.Value(bankAccountId),
+          categoryId: const drift.Value(null),
           amount: const drift.Value(0), // Balanced by itself, but illegal as ledger entry count < 2
           amountInBase: const drift.Value(0),
           exchangeRate: const drift.Value(1.0),
@@ -158,19 +150,19 @@ void main() {
   group('Accounts and Categories CRUD & Integrity Tests', () {
     test('Category and Account CRUD operations', () async {
       // 1. Seed Macro Category
-      final assetMacroId = await db.into(db.macroCategories).insert(
-            const MacroCategoriesCompanion(name: drift.Value('Assets'), type: drift.Value('Asset')),
+      final revenueMacroId = await db.into(db.macroCategories).insert(
+            const MacroCategoriesCompanion(name: drift.Value('Revenues'), type: drift.Value('Revenue')),
           );
 
       // 2. Add Category
       final catId = await db.addCategory(CategoriesCompanion(
-        macroCategoryId: drift.Value(assetMacroId),
-        name: const drift.Value('Test Bank Category'),
+        macroCategoryId: drift.Value(revenueMacroId),
+        name: const drift.Value('Test Revenue Category'),
       ));
       expect(catId, greaterThan(0));
 
       final categories = await db.select(db.categories).get();
-      expect(categories.any((c) => c.id == catId && c.name == 'Test Bank Category'), true);
+      expect(categories.any((c) => c.id == catId && c.name == 'Test Revenue Category'), true);
 
       // 3. Update Category
       final category = categories.firstWhere((c) => c.id == catId);
@@ -181,11 +173,11 @@ void main() {
       final updatedCategories = await db.select(db.categories).get();
       expect(updatedCategories.any((c) => c.id == catId && c.name == 'Updated Category Name'), true);
 
-      // 4. Add Account
-      final accId = await db.addAccount(AccountsCompanion(
-        categoryId: drift.Value(catId),
-        name: const drift.Value('Test Account'),
-        currency: const drift.Value('USD'),
+      // 4. Add Account (No categoryId references)
+      final accId = await db.addAccount(const AccountsCompanion(
+        name: drift.Value('Test Account'),
+        currency: drift.Value('USD'),
+        type: drift.Value('bank'),
       ));
       expect(accId, greaterThan(0));
 
@@ -213,44 +205,31 @@ void main() {
       expect(postDeleteCategories.any((c) => c.id == catId), false);
     });
 
-    test('Integrity checks prevent deleting categories with accounts and accounts with entries', () async {
-      final assetMacroId = await db.into(db.macroCategories).insert(
-            const MacroCategoriesCompanion(name: drift.Value('Assets'), type: drift.Value('Asset')),
+    test('Integrity checks prevent deleting categories and accounts with entries', () async {
+      final revenueMacroId = await db.into(db.macroCategories).insert(
+            const MacroCategoriesCompanion(name: drift.Value('Revenues'), type: drift.Value('Revenue')),
           );
 
       final catId = await db.addCategory(CategoriesCompanion(
-        macroCategoryId: drift.Value(assetMacroId),
+        macroCategoryId: drift.Value(revenueMacroId),
         name: const drift.Value('Investment Category'),
       ));
 
-      final accId = await db.addAccount(AccountsCompanion(
-        categoryId: drift.Value(catId),
-        name: const drift.Value('Brokerage Account'),
-        currency: const drift.Value('EUR'),
+      final accId = await db.addAccount(const AccountsCompanion(
+        name: drift.Value('Brokerage Account'),
+        currency: drift.Value('EUR'),
+        type: drift.Value('bank'),
       ));
 
-      // Attempt to delete category when it has accounts - should be false
+      // Attempt to delete category when it has no entries - should be true
       final canDeleteCatBefore = await db.canDeleteCategory(catId);
-      expect(canDeleteCatBefore, false);
+      expect(canDeleteCatBefore, true);
 
       // Attempt to delete account when it has no entries - should be true
       final canDeleteAccBefore = await db.canDeleteAccount(accId);
       expect(canDeleteAccBefore, true);
 
-      // Add a balanced transaction using this account
-      final expenseMacroId = await db.into(db.macroCategories).insert(
-            const MacroCategoriesCompanion(name: drift.Value('Expenses'), type: drift.Value('Expense')),
-          );
-      final expenseCatId = await db.addCategory(CategoriesCompanion(
-        macroCategoryId: drift.Value(expenseMacroId),
-        name: const drift.Value('Fees'),
-      ));
-      final expenseAccId = await db.addAccount(AccountsCompanion(
-        categoryId: drift.Value(expenseCatId),
-        name: const drift.Value('Broker Fees'),
-        currency: const drift.Value('EUR'),
-      ));
-
+      // Add a balanced transaction using this account and category
       await db.createBalancedTransaction(
         transaction: TransactionsCompanion(
           date: drift.Value(DateTime.now()),
@@ -259,11 +238,13 @@ void main() {
         entries: [
           EntriesCompanion(
             accountId: drift.Value(accId),
+            categoryId: const drift.Value(null),
             amount: const drift.Value(-1000), // Credit Brokerage (-10 EUR)
             amountInBase: const drift.Value(-1000),
           ),
           EntriesCompanion(
-            accountId: drift.Value(expenseAccId),
+            accountId: const drift.Value(null),
+            categoryId: drift.Value(catId),
             amount: const drift.Value(1000), // Debit Fees (+10 EUR)
             amountInBase: const drift.Value(1000),
           ),
@@ -273,6 +254,10 @@ void main() {
       // Now attempt to delete account when it has entries - should be false
       final canDeleteAccAfter = await db.canDeleteAccount(accId);
       expect(canDeleteAccAfter, false);
+
+      // Now attempt to delete category when it has entries - should be false
+      final canDeleteCatAfter = await db.canDeleteCategory(catId);
+      expect(canDeleteCatAfter, false);
     });
   });
 }

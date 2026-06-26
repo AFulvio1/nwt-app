@@ -93,25 +93,14 @@ final dashboardDataProvider = Provider<AsyncValue<DashboardData>>((ref) {
     return const AsyncValue.loading();
   }
 
-  if (accountsAsync.hasError) return AsyncValue.error(accountsAsync.error!, accountsAsync.stackTrace!);
-  if (categoriesAsync.hasError) return AsyncValue.error(categoriesAsync.error!, categoriesAsync.stackTrace!);
-  if (macrosAsync.hasError) return AsyncValue.error(macrosAsync.error!, macrosAsync.stackTrace!);
-  if (txsAsync.hasError) return AsyncValue.error(txsAsync.error!, txsAsync.stackTrace!);
-  if (baseCurrencyAsync.hasError) return AsyncValue.error(baseCurrencyAsync.error!, baseCurrencyAsync.stackTrace!);
+  if (accountsAsync.hasError) return AsyncValue.error(accountsAsync.error!, accountsAsync.stackTrace ?? StackTrace.current);
+  if (categoriesAsync.hasError) return AsyncValue.error(categoriesAsync.error!, categoriesAsync.stackTrace ?? StackTrace.current);
+  if (macrosAsync.hasError) return AsyncValue.error(macrosAsync.error!, macrosAsync.stackTrace ?? StackTrace.current);
+  if (txsAsync.hasError) return AsyncValue.error(txsAsync.error!, txsAsync.stackTrace ?? StackTrace.current);
+  if (baseCurrencyAsync.hasError) return AsyncValue.error(baseCurrencyAsync.error!, baseCurrencyAsync.stackTrace ?? StackTrace.current);
 
-  final accounts = accountsAsync.value!;
-  final categories = categoriesAsync.value!;
-  final macros = macrosAsync.value!;
   final txsWithEntries = txsAsync.value!;
   final baseCurrency = baseCurrencyAsync.value!;
-
-  // Map accounts to their macro category types
-  final accountToMacroType = <int, String>{};
-  for (final account in accounts) {
-    final cat = categories.firstWhere((c) => c.id == account.categoryId, orElse: () => categories.first);
-    final macro = macros.firstWhere((m) => m.id == cat.macroCategoryId, orElse: () => macros.first);
-    accountToMacroType[account.id] = macro.type; // Asset, Liability, Revenue, Expense, Equity
-  }
 
   // Calculate current balances in base currency
   double assetsSum = 0.0;
@@ -119,12 +108,9 @@ final dashboardDataProvider = Provider<AsyncValue<DashboardData>>((ref) {
 
   for (final txWithEntries in txsWithEntries) {
     for (final entry in txWithEntries.entries) {
-      final type = accountToMacroType[entry.accountId];
-      final val = entry.amountInBase / 100.0;
-      if (type == 'Asset') {
+      if (entry.accountId != null) {
+        final val = entry.amountInBase / 100.0;
         assetsSum += val;
-      } else if (type == 'Liability') {
-        liabilitiesSum += val; // will be negative, representing debt
       }
     }
   }
@@ -140,10 +126,8 @@ final dashboardDataProvider = Provider<AsyncValue<DashboardData>>((ref) {
   for (final txWithEntries in sortedTxs) {
     double txNetWorthImpact = 0.0;
     for (final entry in txWithEntries.entries) {
-      final type = accountToMacroType[entry.accountId];
-      final val = entry.amountInBase / 100.0;
-      if (type == 'Asset' || type == 'Liability') {
-        txNetWorthImpact += val;
+      if (entry.accountId != null) {
+        txNetWorthImpact += entry.amountInBase / 100.0;
       }
     }
     runningNetWorth += txNetWorthImpact;
@@ -154,9 +138,9 @@ final dashboardDataProvider = Provider<AsyncValue<DashboardData>>((ref) {
   }
 
   return AsyncValue.data(DashboardData(
-    netWorth: assetsSum + liabilitiesSum, // Assets are positive, Liabilities are negative
+    netWorth: assetsSum + liabilitiesSum, // Assets are positive, Liabilities are negative (always 0 here)
     totalAssets: assetsSum,
-    totalLiabilities: liabilitiesSum.abs(), // Show positive for UI KPI card
+    totalLiabilities: liabilitiesSum.abs(), // Show positive for UI KPI card (always 0 here)
     historyPoints: historyPoints,
     baseCurrency: baseCurrency,
   ));
@@ -176,7 +160,9 @@ final accountBalancesProvider = StreamProvider<Map<int, double>>((ref) {
   return entriesStream.map((entries) {
     final balances = <int, double>{};
     for (final entry in entries) {
-      balances[entry.accountId] = (balances[entry.accountId] ?? 0.0) + (entry.amount / 100.0);
+      if (entry.accountId != null) {
+        balances[entry.accountId!] = (balances[entry.accountId!] ?? 0.0) + (entry.amount / 100.0);
+      }
     }
     return balances;
   });

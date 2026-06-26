@@ -111,79 +111,44 @@ class AccountsView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final accountsAsync = ref.watch(allAccountsStreamProvider);
-    final categoriesAsync = ref.watch(categoriesStreamProvider);
-    final macrosAsync = ref.watch(macroCategoriesStreamProvider);
     final balancesAsync = ref.watch(accountBalancesProvider);
 
     return Scaffold(
       body: accountsAsync.when(
         data: (accounts) {
-          return categoriesAsync.when(
-            data: (categories) {
-              return macrosAsync.when(
-                data: (macros) {
-                  // Filter to Asset macro categories only
-                  final assetMacros = macros.where((m) => m.type == 'Asset').toList();
+          if (accounts.isEmpty) {
+            return _buildEmptyState(context);
+          }
 
-                  // Filter accounts to only Asset accounts
-                  final assetAccounts = accounts.where((acc) {
-                    final cat = categories.firstWhere(
-                      (c) => c.id == acc.categoryId,
-                      orElse: () => Category(id: -1, macroCategoryId: -1, name: 'Unknown', isDefault: false),
-                    );
-                    final macro = macros.firstWhere(
-                      (m) => m.id == cat.macroCategoryId,
-                      orElse: () => MacroCategory(id: -1, name: 'Unknown', type: 'Unknown'),
-                    );
-                    return macro.type == 'Asset';
-                  }).toList();
+          // Group accounts by type (bank vs cash)
+          final bankAccounts = accounts.where((a) => a.type == 'bank').toList();
+          final cashAccounts = accounts.where((a) => a.type == 'cash').toList();
+          final balances = balancesAsync.value ?? {};
 
-                  if (assetAccounts.isEmpty) {
-                    return _buildEmptyState(context);
-                  }
-
-                  // Group accounts by Macro Category ID
-                  final accountsByMacro = <int, List<Account>>{};
-                  for (final acc in assetAccounts) {
-                    final cat = categories.firstWhere(
-                      (c) => c.id == acc.categoryId,
-                      orElse: () => Category(id: -1, macroCategoryId: -1, name: 'Unknown', isDefault: false),
-                    );
-                    if (cat.macroCategoryId != -1) {
-                      accountsByMacro.putIfAbsent(cat.macroCategoryId, () => []).add(acc);
-                    }
-                  }
-
-                  final balances = balancesAsync.value ?? {};
-
-                  return ListView.builder(
-                    padding: const EdgeInsets.all(16.0),
-                    itemCount: assetMacros.length,
-                    itemBuilder: (context, index) {
-                      final macro = assetMacros[index];
-                      final macroAccounts = accountsByMacro[macro.id] ?? [];
-
-                      if (macroAccounts.isEmpty) {
-                        return const SizedBox.shrink();
-                      }
-
-                      return _buildMacroGroup(
-                        context,
-                        ref,
-                        macro,
-                        macroAccounts,
-                        categories,
-                        balances,
-                      );
-                    },
-                  );
-                },
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (err, _) => Center(child: Text('Error loading macro groups: $err')),
-              );
-            },
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (err, _) => Center(child: Text('Error loading categories: $err')),
+          return ListView(
+            padding: const EdgeInsets.all(16.0),
+            children: [
+              if (bankAccounts.isNotEmpty)
+                _buildAccountGroup(
+                  context,
+                  ref,
+                  'Bank Accounts',
+                  Icons.account_balance,
+                  Theme.of(context).colorScheme.primary,
+                  bankAccounts,
+                  balances,
+                ),
+              if (cashAccounts.isNotEmpty)
+                _buildAccountGroup(
+                  context,
+                  ref,
+                  'Cash Wallets',
+                  Icons.wallet_outlined,
+                  Theme.of(context).colorScheme.secondary,
+                  cashAccounts,
+                  balances,
+                ),
+            ],
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -223,37 +188,15 @@ class AccountsView extends ConsumerWidget {
     );
   }
 
-  Widget _buildMacroGroup(
+  Widget _buildAccountGroup(
     BuildContext context,
     WidgetRef ref,
-    MacroCategory macro,
+    String title,
+    IconData typeIcon,
+    Color typeColor,
     List<Account> accounts,
-    List<Category> categories,
     Map<int, double> balances,
   ) {
-    IconData typeIcon;
-    Color typeColor;
-
-    switch (macro.type) {
-      case 'Asset':
-        typeIcon = Icons.trending_up;
-        typeColor = Theme.of(context).colorScheme.secondary;
-        break;
-      case 'Liability':
-        typeIcon = Icons.trending_down;
-        typeColor = Theme.of(context).colorScheme.error;
-        break;
-      case 'Revenue':
-        typeIcon = Icons.account_balance_wallet_outlined;
-        typeColor = Colors.green;
-        break;
-      case 'Expense':
-      default:
-        typeIcon = Icons.shopping_bag_outlined;
-        typeColor = Colors.orange;
-        break;
-    }
-
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       child: Padding(
@@ -261,13 +204,13 @@ class AccountsView extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Macro Category Header
+            // Group Header
             Row(
               children: [
                 Icon(typeIcon, color: typeColor, size: 20),
                 const SizedBox(width: 8),
                 Text(
-                  macro.name.toUpperCase(),
+                  title.toUpperCase(),
                   style: GoogleFonts.outfit(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
@@ -281,12 +224,8 @@ class AccountsView extends ConsumerWidget {
             const Divider(height: 1),
             const SizedBox(height: 8),
 
-            // List of Accounts under this Macro Category
+            // List of Accounts under this group
             ...accounts.map((account) {
-              final category = categories.firstWhere(
-                (c) => c.id == account.categoryId,
-                orElse: () => Category(id: -1, macroCategoryId: -1, name: 'Unknown', isDefault: false),
-              );
               final double balance = balances[account.id] ?? 0.0;
               final formatter = NumberFormat.simpleCurrency(name: account.currency, decimalDigits: 2);
               final formattedBalance = formatter.format(balance);
@@ -327,20 +266,12 @@ class AccountsView extends ConsumerWidget {
                     ],
                   ],
                 ),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Category: ${category.name}',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    if (account.description != null && account.description!.isNotEmpty)
-                      Text(
+                subtitle: account.description != null && account.description!.isNotEmpty
+                    ? Text(
                         account.description!,
                         style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic),
-                      ),
-                  ],
-                ),
+                      )
+                    : null,
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -349,9 +280,7 @@ class AccountsView extends ConsumerWidget {
                       style: GoogleFonts.outfit(
                         fontWeight: FontWeight.bold,
                         fontSize: 14,
-                        color: balance >= 0
-                            ? (macro.type == 'Asset' || macro.type == 'Revenue' ? Colors.green : Colors.grey)
-                            : (macro.type == 'Liability' || macro.type == 'Expense' ? Colors.red : Colors.grey),
+                        color: balance >= 0 ? Colors.green : Colors.red,
                       ),
                     ),
                     const SizedBox(width: 8),

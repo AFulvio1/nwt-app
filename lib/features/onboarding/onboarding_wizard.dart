@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:drift/drift.dart' as drift;
 import '../../core/database/database.dart';
 import '../auth/auth_service.dart';
 
@@ -83,50 +82,7 @@ class _OnboardingWizardState extends ConsumerState<OnboardingWizard> {
       final db = ref.read(databaseProvider);
 
       // 1. Seed database with base currency and default categories/accounts
-      await db.seedInitialData(_selectedCurrency);
-
-      // Apply custom templates if needed
-      if (_selectedTemplate == 'business') {
-        await db.transaction(() async {
-          // Add standard business accounts
-          final revenueMacros = await (db.select(db.macroCategories)..where((t) => t.type.equals('Revenue'))).get();
-          final expenseMacros = await (db.select(db.macroCategories)..where((t) => t.type.equals('Expense'))).get();
-          final assetMacros = await (db.select(db.macroCategories)..where((t) => t.type.equals('Asset'))).get();
-
-          final revId = revenueMacros.first.id;
-          final expId = expenseMacros.first.id;
-          final assetId = assetMacros.first.id;
-
-          final salesCat = await db.into(db.categories).insert(CategoriesCompanion(
-            macroCategoryId: drift.Value(revId),
-            name: const drift.Value('Sales Revenue'),
-          ));
-          final opsCat = await db.into(db.categories).insert(CategoriesCompanion(
-            macroCategoryId: drift.Value(expId),
-            name: const drift.Value('Operating Expenses'),
-          ));
-          final receivableCat = await db.into(db.categories).insert(CategoriesCompanion(
-            macroCategoryId: drift.Value(assetId),
-            name: const drift.Value('Accounts Receivable'),
-          ));
-
-          await db.into(db.accounts).insert(AccountsCompanion(
-            categoryId: drift.Value(salesCat),
-            name: const drift.Value('Client Billing'),
-            currency: drift.Value(_selectedCurrency),
-          ));
-          await db.into(db.accounts).insert(AccountsCompanion(
-            categoryId: drift.Value(opsCat),
-            name: const drift.Value('Software Subscriptions'),
-            currency: drift.Value(_selectedCurrency),
-          ));
-          await db.into(db.accounts).insert(AccountsCompanion(
-            categoryId: drift.Value(receivableCat),
-            name: const drift.Value('Outstanding Invoices'),
-            currency: drift.Value(_selectedCurrency),
-          ));
-        });
-      }
+      await db.seedInitialData(_selectedCurrency, template: _selectedTemplate);
 
       // 2. Save PIN and set biometrics status in secure storage
       final authService = ref.read(authServiceProvider.notifier);
@@ -434,21 +390,21 @@ class _OnboardingWizardState extends ConsumerState<OnboardingWizard> {
         _buildTemplateOption(
           id: 'personal',
           title: 'Personal Finance Template',
-          description: 'Cash, Bank Accounts, Groceries, Rent, Salary, Credit Cards. Recommended for general use.',
+          description: 'Cash, Bank Accounts, Groceries, Rent, Salary, and other standard categories. Recommended for general use.',
           icon: Icons.person_outline,
         ),
         const SizedBox(height: 16),
         _buildTemplateOption(
           id: 'business',
           title: 'Business Ledger Template',
-          description: 'Client Billing, Software Subscriptions, Outstanding Invoices, and Operations categories.',
+          description: 'Sales Revenue, Operating Expenses, Software & Tools, Taxes, and Business Bank Accounts.',
           icon: Icons.business_center_outlined,
         ),
         const SizedBox(height: 16),
         _buildTemplateOption(
           id: 'empty',
           title: 'Clean Slate',
-          description: 'Only seeds basic root asset, liability, and equity groups. No pre-made accounts.',
+          description: 'Only seeds basic root Revenues and Expenses macro categories. No pre-made accounts or categories.',
           icon: Icons.star_border,
         ),
       ],

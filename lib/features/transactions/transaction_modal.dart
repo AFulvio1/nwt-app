@@ -20,7 +20,7 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
   DateTime _selectedDate = DateTime.now();
 
   int? _selectedReferenceAccountId;
-  int? _selectedCategoryAccountId;
+  int? _selectedCategoryId;
 
   @override
   void dispose() {
@@ -50,7 +50,7 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
     List<MacroCategory> macros,
   ) async {
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedReferenceAccountId == null || _selectedCategoryAccountId == null) {
+    if (_selectedReferenceAccountId == null || _selectedCategoryId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select both an account and a category')),
       );
@@ -68,9 +68,8 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
     try {
       final db = ref.read(databaseProvider);
 
-      // Find selected category account to determine if it is Revenue (Income) or Expense (Outcome)
-      final categoryAccount = accounts.firstWhere((a) => a.id == _selectedCategoryAccountId);
-      final category = categories.firstWhere((c) => c.id == categoryAccount.categoryId);
+      // Find selected category to determine if it is Revenue (Income) or Expense (Outcome)
+      final category = categories.firstWhere((c) => c.id == _selectedCategoryId);
       final macro = macros.firstWhere((m) => m.id == category.macroCategoryId);
 
       final bool isIncome = macro.type == 'Revenue';
@@ -78,54 +77,51 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
       // Validation: Prevent spending more than available balance on Asset accounts
       if (!isIncome) {
         final referenceAccount = accounts.firstWhere((a) => a.id == _selectedReferenceAccountId);
-        final refCategory = categories.firstWhere((c) => c.id == referenceAccount.categoryId);
-        final refMacro = macros.firstWhere((m) => m.id == refCategory.macroCategoryId);
+        final dbEntries = await (db.select(db.entries)..where((e) => e.accountId.equals(_selectedReferenceAccountId!))).get();
+        int balanceCents = 0;
+        for (final entry in dbEntries) {
+          balanceCents += entry.amount;
+        }
+        final double currentBalance = balanceCents / 100.0;
 
-        if (refMacro.type == 'Asset') {
-          final dbEntries = await (db.select(db.entries)..where((e) => e.accountId.equals(_selectedReferenceAccountId!))).get();
-          int balanceCents = 0;
-          for (final entry in dbEntries) {
-            balanceCents += entry.amount;
-          }
-          final double currentBalance = balanceCents / 100.0;
-
-          if (currentBalance < amountDouble) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Insufficient funds in ${referenceAccount.name}. '
-                    'Available: ${currentBalance.toStringAsFixed(2)} $baseCurrency. '
-                    'Required: ${amountDouble.toStringAsFixed(2)} $baseCurrency.',
-                  ),
-                  backgroundColor: Theme.of(context).colorScheme.error,
+        if (currentBalance < amountDouble) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Insufficient funds in ${referenceAccount.name}. '
+                  'Available: ${currentBalance.toStringAsFixed(2)} $baseCurrency. '
+                  'Required: ${amountDouble.toStringAsFixed(2)} $baseCurrency.',
                 ),
-              );
-            }
-            return;
+                backgroundColor: Theme.of(context).colorScheme.error,
+              ),
+            );
           }
+          return;
         }
       }
 
       // Debit = positive, Credit = negative
       // If Income (Revenue):
       // - Reference Account is DEBIT (+)
-      // - Category Account is CREDIT (-)
+      // - Category is CREDIT (-)
       // If Expense (Outcome):
       // - Reference Account is CREDIT (-)
-      // - Category Account is DEBIT (+)
+      // - Category is DEBIT (+)
       final int refAmountCents = (amountDouble * 100 * (isIncome ? 1.0 : -1.0)).round();
       final int catAmountCents = (amountDouble * 100 * (isIncome ? -1.0 : 1.0)).round();
 
       final entriesComcompanions = [
         EntriesCompanion(
           accountId: drift.Value(_selectedReferenceAccountId!),
+          categoryId: const drift.Value(null),
           amount: drift.Value(refAmountCents),
           amountInBase: drift.Value(refAmountCents), // Assuming 1.0 exchange rate
           exchangeRate: const drift.Value(1.0),
         ),
         EntriesCompanion(
-          accountId: drift.Value(_selectedCategoryAccountId!),
+          accountId: const drift.Value(null),
+          categoryId: drift.Value(_selectedCategoryId!),
           amount: drift.Value(catAmountCents),
           amountInBase: drift.Value(catAmountCents), // Assuming 1.0 exchange rate
           exchangeRate: const drift.Value(1.0),
@@ -183,25 +179,14 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
     final categories = categoriesAsync.value ?? [];
     final macros = macrosAsync.value ?? [];
 
-    final referenceAccounts = <Account>[];
-    final categoryAccounts = <Account>[];
-
-    for (final account in accounts) {
-      final category = categories.firstWhere((c) => c.id == account.categoryId, orElse: () => categories.first);
-      final macro = macros.firstWhere((m) => m.id == category.macroCategoryId, orElse: () => macros.first);
-
-      if (macro.type == 'Asset' || macro.type == 'Liability') {
-        referenceAccounts.add(account);
-      } else if (macro.type == 'Revenue' || macro.type == 'Expense') {
-        categoryAccounts.add(account);
-      }
-    }
+    final referenceAccounts = accounts;
+    final categoryList = categories;
 
     if (_selectedReferenceAccountId == null && referenceAccounts.isNotEmpty) {
       _selectedReferenceAccountId = referenceAccounts.first.id;
     }
-    if (_selectedCategoryAccountId == null && categoryAccounts.isNotEmpty) {
-      _selectedCategoryAccountId = categoryAccounts.first.id;
+    if (_selectedCategoryId == null && categoryList.isNotEmpty) {
+      _selectedCategoryId = categoryList.first.id;
     }
 
     return Container(
@@ -281,7 +266,7 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
               ),
               const SizedBox(height: 16),
 
-              // Reference Account Selection (Asset / Liability)
+              // Reference Account Selection
               DropdownButtonFormField<int>(
                 initialValue: _selectedReferenceAccountId,
                 decoration: const InputDecoration(
@@ -303,22 +288,23 @@ class _TransactionModalState extends ConsumerState<TransactionModal> {
               ),
               const SizedBox(height: 16),
 
-              // Category Selection (Revenue / Expense)
+              // Category Selection
               DropdownButtonFormField<int>(
-                initialValue: _selectedCategoryAccountId,
+                initialValue: _selectedCategoryId,
                 decoration: const InputDecoration(
-                  labelText: 'Category / Type',
+                  labelText: 'Category',
                   hintText: 'Select category (e.g. Salary, Groceries)',
                 ),
-                items: categoryAccounts.map((acc) {
+                items: categoryList.map((cat) {
+                  final macro = macros.firstWhere((m) => m.id == cat.macroCategoryId, orElse: () => macros.first);
                   return DropdownMenuItem<int>(
-                    value: acc.id,
-                    child: Text('${acc.name} (${acc.currency})'),
+                    value: cat.id,
+                    child: Text('${cat.name} (${macro.name})'),
                   );
                 }).toList(),
                 onChanged: (value) {
                   setState(() {
-                    _selectedCategoryAccountId = value;
+                    _selectedCategoryId = value;
                   });
                 },
                 validator: (value) => value == null ? 'Select category' : null,

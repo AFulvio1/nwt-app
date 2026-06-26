@@ -7,8 +7,10 @@ void main() {
   late AppDatabase db;
 
   setUp(() {
-    // Open in-memory database for testing
-    db = AppDatabase.executor(NativeDatabase.memory());
+    // Open in-memory database for testing with foreign key constraints enabled
+    db = AppDatabase.executor(NativeDatabase.memory(setup: (database) {
+      database.execute('PRAGMA foreign_keys = ON;');
+    }));
   });
 
   tearDown(() async {
@@ -144,6 +146,42 @@ void main() {
         ),
         throwsA(isA<Exception>()),
       );
+    });
+
+    test('Saving a transaction with a custom date should persist that specific custom date', () async {
+      final customDate = DateTime(2025, 12, 25, 10, 30);
+      final txCompanion = TransactionsCompanion(
+        date: drift.Value(customDate),
+        description: const drift.Value('Custom Date Transaction'),
+      );
+
+      final entriesComcompanions = [
+        EntriesCompanion(
+          accountId: drift.Value(bankAccountId),
+          categoryId: const drift.Value(null),
+          amount: const drift.Value(5000),
+          amountInBase: const drift.Value(5000),
+          exchangeRate: const drift.Value(1.0),
+        ),
+        EntriesCompanion(
+          accountId: const drift.Value(null),
+          categoryId: drift.Value(incomeCategoryId),
+          amount: const drift.Value(-5000),
+          amountInBase: const drift.Value(-5000),
+          exchangeRate: const drift.Value(1.0),
+        ),
+      ];
+
+      final txId = await db.createBalancedTransaction(
+        transaction: txCompanion,
+        entries: entriesComcompanions,
+      );
+
+      expect(txId, greaterThan(0));
+
+      final savedTxs = await db.select(db.transactions).get();
+      expect(savedTxs.length, 1);
+      expect(savedTxs.first.date, customDate);
     });
   });
 

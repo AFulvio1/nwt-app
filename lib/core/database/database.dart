@@ -258,12 +258,16 @@ LazyDatabase _openConnection() {
     final devDir = Directory('/Users/antoniofulvio/Projects/nwt-app');
     if (await devDir.exists()) {
       final file = File(p.join(devDir.path, 'nwt_database.sqlite'));
-      return NativeDatabase.createInBackground(file);
+      return NativeDatabase.createInBackground(file, setup: (database) {
+        database.execute('PRAGMA foreign_keys = ON;');
+      });
     }
 
     final dbFolder = await getApplicationSupportDirectory();
     final file = File(p.join(dbFolder.path, 'nwt_database.sqlite'));
-    return NativeDatabase.createInBackground(file);
+    return NativeDatabase.createInBackground(file, setup: (database) {
+      database.execute('PRAGMA foreign_keys = ON;');
+    });
   });
 }
 
